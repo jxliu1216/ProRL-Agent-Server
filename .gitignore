@@ -121,3 +121,6 @@ docs/
 # Dashboard frontend build artifacts
 web/node_modules/
 web/dist/
+
+# required packages
+required_packages/
