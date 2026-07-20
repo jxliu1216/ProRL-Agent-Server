@@ -23,14 +23,14 @@ SLIME_REF="${SLIME_REF:-v0.3.0}"
 
 MEGATRON_DIR="${MEGATRON_DIR:-${PROJECT_ROOT}/tmp/Megatron-LM-slime-v0.3.0}"
 MEGATRON_REPO="${MEGATRON_REPO:-https://github.com/NVIDIA/Megatron-LM.git}"
-# Slime v0.3.0 imports megatron.training.tokenizer, which current Megatron main
-# removed. Keep the default pinned to the compatible 26.04 alpha line.
+# Slime v0.3.0 imports megatron.training.tokenizer which 26.04+ removed.
+# patch_megatron_tokenizer_shim.sh adds the missing _vocab_size_with_padding.
 MEGATRON_REF="${MEGATRON_REF:-26.04-alpha.rc1}"
 # SWE-Gym's fork of the SWE-bench harness (grades the SWE-Gym instances). Not on
 # PyPI, so installed from git; commit-pinned for reproducibility.
 SWEGYM_PACKAGE_SPEC="${SWEGYM_PACKAGE_SPEC:-swegym @ git+https://github.com/SWE-Gym/SWE-Bench-Package.git@16dd480cce9b27bf111a362d280881c6def5d2a7}"
 
-HF_CHECKPOINT="${HF_CHECKPOINT:-Qwen/Qwen3.5-4B}"
+HF_CHECKPOINT="${HF_CHECKPOINT:-/data/Qwen3.5-4B}"
 REF_LOAD="${REF_LOAD:-${TORCH_DIST_DIR:-${PROJECT_ROOT}/tmp/checkpoints/Qwen3.5-4B_torch_dist}}"
 TORCH_DIST_DIR="${TORCH_DIST_DIR:-${REF_LOAD}}"
 RUN_ID="${RUN_ID:-${WANDB_RUN_ID:-swegym-slime-grpo-$(date -u +%Y%m%dT%H%M%SZ)}}"
@@ -42,15 +42,35 @@ APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-${PROJECT_ROOT}/tmp/apptainer_cache}"
 APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${PROJECT_ROOT}/tmp/apptainer_tmp}"
 POLAR_APPTAINER_BIN="${POLAR_APPTAINER_BIN:-$(command -v apptainer || echo /usr/bin/apptainer)}"
 
-INSTALL_EDITABLE="${INSTALL_EDITABLE:-1}"
-INSTALL_TRAINING_STACK="${INSTALL_TRAINING_STACK:-1}"  # TE + FLA + flash-attn (SM100 only)
+# Number of SWE-Gym tasks: 16 (local Docker images) or 293 (full dataset).
+# When NUM_TASKS=16 the pipeline expects Docker images already loaded (via
+# ``docker load``) and uses build_sifs_from_docker.py to convert them into
+# Apptainer SIF files instead of pulling from the remote registry.
+NUM_TASKS="${NUM_TASKS:-64}"
+case "${NUM_TASKS}" in
+    16) PROMPT_DATA="${PROMPT_DATA:-${SCRIPT_DIR}/swegym_train_16.jsonl}" ;;
+    64) PROMPT_DATA="${PROMPT_DATA:-${SCRIPT_DIR}/swegym_train_64.jsonl}" ;;
+    *)  PROMPT_DATA="${PROMPT_DATA:-${SCRIPT_DIR}/swegym_train_293.jsonl}" ;;
+esac
+
+INSTALL_EDITABLE="${INSTALL_EDITABLE:-0}"
+INSTALL_TRAINING_STACK="${INSTALL_TRAINING_STACK:-0}"  # TE + FLA + flash-attn (SM100 only)
 FLASH_LINEAR_ATTENTION_VERSION="${FLASH_LINEAR_ATTENTION_VERSION:-0.5.0}"
 MBRIDGE_VERSION="${MBRIDGE_VERSION:-0.15.1}"  # HF<->Megatron weight bridge (slime conversion)
-APPLY_SGLANG_PATCH="${APPLY_SGLANG_PATCH:-1}"
-PREPARE_IMAGES="${PREPARE_IMAGES:-1}"
+APPLY_SGLANG_PATCH="${APPLY_SGLANG_PATCH:-0}"
+PREPARE_IMAGES="${PREPARE_IMAGES:-0}"
 APPTAINER_PREPARE_JOBS="${APPTAINER_PREPARE_JOBS:-2}"
 CONVERT_WEIGHTS="${CONVERT_WEIGHTS:-auto}"
-export APPTAINER_CACHEDIR APPTAINER_TMPDIR POLAR_APPTAINER_BIN
+MAX_TOKENS_PER_GPU="${MAX_TOKENS_PER_GPU:-20000}"
+SGLANG_CONTEXT_LENGTH="${SGLANG_CONTEXT_LENGTH:-32000}"
+export PROMPT_DATA APPTAINER_CACHEDIR APPTAINER_TMPDIR POLAR_APPTAINER_BIN
+export WANDB_API_KEY=local-cbfc7c82164f68aa14bcadfb7efafcee35f99dbf
+export MAX_TOKENS_PER_GPU SGLANG_CONTEXT_LENGTH
+
+# Redirect all output to a timestamped log file.
+LOG_DIR="${LOG_DIR:-${PROJECT_ROOT}/logs}"
+mkdir -p "${LOG_DIR}"
+exec &> >(tee -a "${LOG_DIR}/launch_e2e_$(date -u +%Y%m%dT%H%M%SZ).log")
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -220,6 +240,8 @@ clone_if_missing "Slime" "${SLIME_REPO}" "${SLIME_REF}" "${SLIME_DIR}"
 clone_if_missing "Megatron-LM" "${MEGATRON_REPO}" "${MEGATRON_REF}" "${MEGATRON_DIR}"
 
 SLIME_DIR="${SLIME_DIR}" bash "${PROJECT_ROOT}/scripts/patch/patch_slime_router_tokens.sh"
+# Megatron 26.04+ removed megatron.training.tokenizer; add the one function Slime needs.
+MEGATRON_DIR="${MEGATRON_DIR}" bash "${PROJECT_ROOT}/scripts/patch/patch_megatron_tokenizer_shim.sh"
 
 if [ "${INSTALL_EDITABLE}" = "1" ]; then
     # [swebench] is load-bearing even though swegym (installed below) does the actual
@@ -228,6 +250,12 @@ if [ "${INSTALL_EDITABLE}" = "1" ]; then
     # So we need both — [swebench] for the deps, swegym for the SWE-Gym repo specs.
     uv pip install --python "${PYTHON_BIN}" -e ".[swebench]"
     uv pip install --python "${PYTHON_BIN}" -e "${SLIME_DIR}"
+    # Slime v0.3.0 references args.enable_gloo_process_groups which 26.04 renamed
+    # to disable_gloo_process_groups (negated). Patch all occurrences in slime.
+    for f in "${SLIME_DIR}/slime/backends/megatron_utils/initialize.py" \
+             "${SLIME_DIR}/slime/backends/megatron_utils/model.py"; do
+        sed -i 's/args\.enable_gloo_process_groups/not getattr(args, "disable_gloo_process_groups", False)/' "$f"
+    done
     uv pip install --python "${PYTHON_BIN}" -e "${MEGATRON_DIR}"
     # mbridge: HF<->Megatron weight map slime needs to convert Qwen3.5 (slime_plugins.mbridge).
     # --no-deps keeps the pinned torch / TE / flash-attn stack untouched.
@@ -243,15 +271,31 @@ if [ "${APPLY_SGLANG_PATCH}" = "1" ]; then
     bash "${PROJECT_ROOT}/scripts/patch/patch_sglang_0513_token_metadata.sh"
 fi
 
-"${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_data.py"
+case "${NUM_TASKS}" in
+    16) "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_data_16.py" ;;
+    64) "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_data_64.py" ;;
+    *)  "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_data.py" ;;
+esac
 
 if [ "${PREPARE_IMAGES}" = "1" ]; then
-    "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_apptainer_images.py" \
-        --agent-cli-dir "${AGENT_CLI_DIR}" \
-        --image-dir "${APPTAINER_IMAGE_DIR}" \
-        --cache-dir "${APPTAINER_CACHEDIR}" \
-        --tmp-dir "${APPTAINER_TMPDIR}" \
-        --jobs "${APPTAINER_PREPARE_JOBS}"
+    if [ "${NUM_TASKS}" = "16" ] || [ "${NUM_TASKS}" = "64" ]; then
+        # 16/64-task mode: convert locally-loaded Docker images to Apptainer SIF
+        "${PYTHON_BIN}" "${SCRIPT_DIR}/build_sifs_from_docker.py" \
+            --agent-cli-dir "${AGENT_CLI_DIR}" \
+            --node-dist "${NODE_DIST:-${PROJECT_ROOT}/required_packages/node-v22.11.0-linux-x64.tar.xz}" \
+            --image-dir "${APPTAINER_IMAGE_DIR}" \
+            --cache-dir "${APPTAINER_CACHEDIR}" \
+            --tmp-dir "${APPTAINER_TMPDIR}" \
+            --jobs "${APPTAINER_PREPARE_JOBS}"
+    else
+        # Full 293 mode: pull from remote registry (original behavior)
+        "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_apptainer_images.py" \
+            --agent-cli-dir "${AGENT_CLI_DIR}" \
+            --image-dir "${APPTAINER_IMAGE_DIR}" \
+            --cache-dir "${APPTAINER_CACHEDIR}" \
+            --tmp-dir "${APPTAINER_TMPDIR}" \
+            --jobs "${APPTAINER_PREPARE_JOBS}"
+    fi
 fi
 
 if [ "${CONVERT_WEIGHTS}" = "1" ] || { [ "${CONVERT_WEIGHTS}" = "auto" ] && ! checkpoint_ready; }; then
@@ -273,6 +317,9 @@ SAVE_ROOT="${SAVE_ROOT}" \
 PYTHON_BIN="${PYTHON_BIN}" \
 SLIME_DIR="${SLIME_DIR}" \
 MEGATRON_DIR="${MEGATRON_DIR}" \
+PROMPT_DATA="${PROMPT_DATA}" \
+MAX_TOKENS_PER_GPU="${MAX_TOKENS_PER_GPU}" \
+SGLANG_CONTEXT_LENGTH="${SGLANG_CONTEXT_LENGTH}" \
 AGENT_CLI_DIR="${AGENT_CLI_DIR}" \
 APPTAINER_IMAGE_DIR="${APPTAINER_IMAGE_DIR}" \
     bash "${SCRIPT_DIR}/run.sh"

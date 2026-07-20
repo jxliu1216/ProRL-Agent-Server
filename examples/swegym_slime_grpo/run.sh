@@ -196,13 +196,18 @@ RUNTIME_ENV_JSON="{
     \"VIRTUAL_ENV\": \"${VIRTUAL_ENV:-${PROJECT_ROOT}/.venv}\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
     \"WANDB_DIR\": \"${PROJECT_ROOT}/logs\",
+    \"WANDB_BASE_URL\": \"${WANDB_BASE_URL:-http://127.0.0.1:9090}\",
+    \"WANDB_API_KEY\": \"${WANDB_API_KEY:-}\",
     \"TORCHINDUCTOR_CACHE_DIR\": \"${TORCHINDUCTOR_CACHE_DIR}\",
     \"TRITON_CACHE_DIR\": \"${TRITON_CACHE_DIR}\",
     \"LD_LIBRARY_PATH\": \"${RUNTIME_LD_LIBRARY_PATH}\",
     \"PYTORCH_ALLOC_CONF\": \"max_split_size_mb:2048,expandable_segments:True\",
     \"PYTORCH_CUDA_ALLOC_CONF\": \"max_split_size_mb:2048,expandable_segments:True\",
     \"NVTE_DEBUG\": \"1\",
-    \"NVTE_DEBUG_LEVEL\": \"2\"
+    \"NVTE_DEBUG_LEVEL\": \"2\",
+    \"NVTE_CUDA_INCLUDE_DIR\": \"${NVTE_CUDA_INCLUDE_DIR:-/usr/local/cuda/include}\",
+    \"PYTHONHTTPSVERIFY\": \"0\",
+    \"SSL_CERT_FILE\": \"\"
   }
 }"
 
@@ -239,7 +244,7 @@ ray job submit --address="http://${RAY_HEAD_IP}:8265" \
     --metadata-key metadata \
     --rollout-shuffle \
     --reward-key score \
-    --num-epoch "${NUM_EPOCH:-1}" \
+    --num-epoch "${NUM_EPOCH:-20}" \
     --rollout-batch-size "$ROLLOUT_BATCH_SIZE" \
     --n-samples-per-prompt "$N_SAMPLES_PER_PROMPT" \
     --rollout-max-response-len 16000 \

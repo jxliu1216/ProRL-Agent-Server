@@ -9,7 +9,7 @@ from polar.agent.models import AgentSpec
 from polar.runtime.base import BaseRuntime, RUNTIME_AGENT_LOG_DIR, RUNTIME_SESSION_DIR
 from polar.runtime.models import ExecInput
 
-DEFAULT_CODEX_VERSION = "0.125.0"
+DEFAULT_CODEX_VERSION = "0.144.5"
 DEFAULT_REASONING_EFFORT = "xhigh"
 DEFAULT_MODEL_NAME = "gpt-5.5"
 

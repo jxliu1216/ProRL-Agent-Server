@@ -15,7 +15,7 @@ MODEL_ARGS=(
     --num-layers 32
     --hidden-size 2560
     --ffn-hidden-size 9216
-    --use-gated-attention
+    # --use-gated-attention  (removed in Megatron 26.04; --swiglu enables gated_linear_unit internally)
     --normalization RMSNorm
     --apply-layernorm-1p
     --position-embedding-type rope

@@ -33,6 +33,7 @@ source "${SCRIPT_DIR}/model_args.sh"
 echo "Converting ${HF_CHECKPOINT} -> ${OUTPUT_DIR}"
 
 CUDA_DEVICE_MAX_CONNECTIONS=1 \
+NVTE_CUDA_INCLUDE_DIR="${NVTE_CUDA_INCLUDE_DIR:-/usr/local/cuda/include}" \
 PYTHONPATH="${MEGATRON_DIR}:${SLIME_DIR}:${PROJECT_ROOT}/src" \
 torchrun --nproc_per_node 1 \
     "${SLIME_DIR}/tools/convert_hf_to_torch_dist.py" \
