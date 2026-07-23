@@ -101,9 +101,11 @@ checkpoints/
 models/
 experiments/
 rollout_results/
+rollout_results_backup/
 outputs/
 local/
 logs/
+logs_backup/
 train-logs/
 tmp/
 **/rollout_data/
