@@ -263,6 +263,15 @@ if [ "${INSTALL_EDITABLE}" = "1" ]; then
     # --no-deps keeps the pinned torch / TE / flash-attn stack untouched.
     uv pip install --python "${PYTHON_BIN}" --no-deps "mbridge==${MBRIDGE_VERSION}"
     ensure_swegym_harness
+    # Ensure sitecustomize.py auto-loads the swegym cache patch for every
+    # Python process (Polar gateway, rollout server, Ray workers).
+    cat > "$("${PYTHON_BIN}" -c 'import site; print(site.getsitepackages()[0])')/sitecustomize.py" << 'PYEOF'
+try:
+    from polar.patches.swegym_env_cache import apply
+    apply()
+except Exception:
+    pass
+PYEOF
 fi
 
 if [ "${INSTALL_TRAINING_STACK}" = "1" ]; then

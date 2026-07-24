@@ -49,6 +49,7 @@ polar_task_template:
       - type: exec
         command: >-
           mkdir -p /polar/session/logs/agent "$HOME/.venv/bin" &&
+          printf 'channels:\n  - defaults\nshow_channel_urls: true\ndefault_channels:\n  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main\n  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/r\n  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/msys2\ncustom_channels:\n  conda-forge: https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud\n  pytorch: https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud\n' > "$HOME/.condarc" &&
           ln -sf /opt/miniconda3/envs/testbed/bin/python "$HOME/.venv/bin/python" &&
           ln -sf /opt/miniconda3/envs/testbed/bin/python "$HOME/.venv/bin/python3" &&
           git config --global core.pager ''
